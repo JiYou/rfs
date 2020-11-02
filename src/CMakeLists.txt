@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.19)
+
 set(CMAKE_MACOSX_RPATH 1)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../rocksdb/include)
@@ -38,8 +40,8 @@ ELSE ()
 ENDIF()
 
 set(SRCS
-    include/nce/board.h
-    board.cpp
+    include/rfs/board.h
+    rfs/board.cpp
 )
 
 add_library(rfs_lib ${SRCS})
