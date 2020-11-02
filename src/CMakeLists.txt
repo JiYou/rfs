@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.19)
+cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_MACOSX_RPATH 1)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
