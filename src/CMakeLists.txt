@@ -40,8 +40,8 @@ ELSE ()
 ENDIF()
 
 set(SRCS
-    include/rfs/board.h
-    rfs/board.cpp
+    include/rfs/rfs.h
+    rfs/rfs.cc
 )
 
 add_library(rfs_lib ${SRCS})
