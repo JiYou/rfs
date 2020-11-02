@@ -1732,8 +1732,6 @@ int64_t BlueFS::_read(
                 uint64_t x_off = 0;
                 auto p = h->file->fnode.seek(buf->bl_off, &x_off);
                 if (p == h->file->fnode.extents.end()) {
-                    dout(5) << __func__ << " reading less then required " << ret
-                            << "<" << ret + len << dendl;
                     break;
                 }
 
@@ -1748,8 +1746,7 @@ int64_t BlueFS::_read(
                 if (!h->ignore_eof && buf->bl_off + l > eof_offset) {
                     l = eof_offset - buf->bl_off;
                 }
-                dout(20) << __func__ << " fetching 0x" << std::hex << x_off
-                         << "~" << l << std::dec << " of " << *p << dendl;
+
                 int r = bdev[p->bdev]->read(p->offset + x_off, l, &buf->bl,
                                             ioc[p->bdev],
                                             cct->_conf->bluefs_buffered_io);
@@ -1761,8 +1758,6 @@ int64_t BlueFS::_read(
             continue;
         }
         left = buf->get_buf_remaining(off);
-        dout(20) << __func__ << " left 0x" << std::hex << left << " len 0x"
-                 << len << std::dec << dendl;
 
         int64_t r = std::min(len, left);
         if (outbl) {
@@ -1771,17 +1766,13 @@ int64_t BlueFS::_read(
             outbl->claim_append(t);
         }
         if (out) {
-            // NOTE: h->bl is normally a contiguous buffer so c_str() is free.
             memcpy(out, buf->bl.c_str() + off - buf->bl_off, r);
             out += r;
         }
 
-        dout(30) << __func__ << " result chunk (0x" << std::hex << r << std::dec
-                 << " bytes):\n";
         bufferlist t;
         t.substr_of(buf->bl, off - buf->bl_off, r);
         t.hexdump(*_dout);
-        *_dout << dendl;
 
         off += r;
         len -= r;
@@ -1789,7 +1780,6 @@ int64_t BlueFS::_read(
         buf->pos += r;
     }
 
-    dout(20) << __func__ << " got " << ret << dendl;
     ceph_assert(!outbl || (int)outbl->length() == ret);
     --h->file->num_reading;
     return ret;
