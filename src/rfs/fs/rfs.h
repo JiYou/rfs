@@ -152,26 +152,43 @@ class BlueFS {
 
     struct FileWriter {
         MEMPOOL_CLASS_HELPERS();
-
+        // 指向文件
         FileRef file;
-        uint64_t pos = 0;  ///< start offset for buffer
+
+        // 由于buffer是一个固定长度的区域，那么在追加的时候
+        // 需要指出追到内存的那个位置。
+        ///< start offset for buffer
+        uint64_t pos = 0;
+
        private:
-        ceph::buffer::list buffer;  ///< new data to write (at end of file)
-        ceph::buffer::list
-            tail_block;  ///< existing partial block at end of file, if any
+        // 这里是需要追加的数据缓冲区
+        ///< new data to write (at end of file)
+        ceph::buffer::list buffer;
+
+        // 尾部并不完整的block
+        // 当要追加的部分并不完整的时候，
+        // 如果没有这个尾巴，那么就需要
+        ///< existing partial block at end of file, if any
+        ceph::buffer::list tail_block;
+
        public:
+        // 拿到缓冲区的长度
         unsigned get_buffer_length() const { return buffer.length(); }
+
+        // 刷写缓冲区
         ceph::bufferlist flush_buffer(CephContext* cct, const bool partial,
                                       const unsigned length,
                                       const bluefs_super_t& super);
-        ceph::buffer::list::page_aligned_appender
-            buffer_appender;  //< for const char* only
+
+        //< for const char* only
+        ceph::buffer::list::page_aligned_appender buffer_appender;
+
        public:
-        int writer_type = 0;  ///< WRITER_*
+        int writer_type = 0;
         int write_hint = WRITE_LIFE_NOT_SET;
 
         ceph::mutex lock = ceph::make_mutex("BlueFS::FileWriter::lock");
-        std::array<IOContext*, MAX_BDEV> iocv;  ///< for each bdev
+        std::array<IOContext*, MAX_BDEV> iocv;
         std::array<bool, MAX_BDEV> dirty_devs;
 
         FileWriter(FileRef f)
@@ -185,6 +202,7 @@ class BlueFS {
                 write_hint = WRITE_LIFE_MEDIUM;
             }
         }
+
         // NOTE: caller must call BlueFS::close_writer()
         ~FileWriter() { --file->num_writers; }
 

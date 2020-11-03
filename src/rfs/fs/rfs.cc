@@ -1726,31 +1726,51 @@ int64_t BlueFS::_read(
             std::unique_lock u_lock(h->lock);
             buf->bl.reassign_to_mempool(mempool::mempool_bluefs_file_reader);
             if (off < buf->bl_off || off >= buf->get_buf_end()) {
-                // if precondition hasn't changed during locking upgrade.
+                // 原来的pre_fetch的buffer对我来说，没有什么用，
+                // 因为我这次要读的区间并不在这里，所以直接作废掉
                 buf->bl.clear();
+                // off & block_mask() 相当于是把后面的去掉，也就是向下取整
                 buf->bl_off = off & super.block_mask();
+
+                // 这里通过偏移去找物理的切片
                 uint64_t x_off = 0;
                 auto p = h->file->fnode.seek(buf->bl_off, &x_off);
                 if (p == h->file->fnode.extents.end()) {
                     break;
                 }
 
+                // off & ~super.block_mask() 是取offset的尾巴部分
+                // offset因为需要向下对齐，总归会留点尾巴的。
+                // 所以这里len + 尾巴,然后再向上对齐，就是需要读取的字节数
                 uint64_t want = round_up_to(len + (off & ~super.block_mask()),
                                             super.block_size);
+                // pre_fetch并不是说预先知道要读哪里，而是说在读的时候，可以多读一些。
+                // 比如本来打算只读16Bytes，但是如果设置了max_pre_fetch为1MB
+                // 那么这里就会读1MB出来。
+                // 这里需要与max_pre_fetch进行比较
                 want = std::max(want, buf->max_prefetch);
+                // p->length 指的是物理切片的总长度
+                // x_off指的是在这个物理切片里面到起始位置的偏移量
                 uint64_t l = std::min(p->length - x_off, want);
+
                 // hard cap to 1GB
+                // 最多不能超过1GB
                 l = std::min(l, uint64_t(1) << 30);
+
+                // 这里拿到文件结尾所在位置
                 uint64_t eof_offset =
                     round_up_to(h->file->fnode.size, super.block_size);
+                // 看一下超出文件结尾位置没有
+                // 如果超出了，这里需要归整一下
                 if (!h->ignore_eof && buf->bl_off + l > eof_offset) {
                     l = eof_offset - buf->bl_off;
                 }
 
+                // 这里直接到相应的磁盘上把数据读出来
+
                 int r = bdev[p->bdev]->read(p->offset + x_off, l, &buf->bl,
                                             ioc[p->bdev],
                                             cct->_conf->bluefs_buffered_io);
-                ceph_assert(r == 0);
             }
             u_lock.unlock();
             s_lock.lock();
@@ -1780,25 +1800,34 @@ int64_t BlueFS::_read(
         buf->pos += r;
     }
 
-    ceph_assert(!outbl || (int)outbl->length() == ret);
-    --h->file->num_reading;
     return ret;
 }
 
 void BlueFS::_invalidate_cache(FileRef f, uint64_t offset, uint64_t length) {
-    dout(10) << __func__ << " file " << f->fnode << " 0x" << std::hex << offset
-             << "~" << length << std::dec << dendl;
+    // 这里是把要处理的区域进行一下对齐
+    // 如果有尾巴
     if (offset & ~super.block_mask()) {
+        // 那么切掉这个尾巴
         offset &= super.block_mask();
+        // 然后把长度往上对齐
+        // 这里是不是应该把去掉的尾巴加上？
         length = round_up_to(length, super.block_size);
     }
+
+    // 这里已经得到的是对齐的offset和length
+
     uint64_t x_off = 0;
+
+    // seek函数就是去内部的物理切片里面找
+    // 然后把相应的物理切片找到并且返回回来
+    // p是一个iterator
+    // 然后x_off是p这个物理切片里面的偏移量
     auto p = f->fnode.seek(offset, &x_off);
+
     while (length > 0 && p != f->fnode.extents.end()) {
         uint64_t x_len = std::min(p->length - x_off, length);
+        // 这里只是去刷写底层硬件的cache
         bdev[p->bdev]->invalidate_cache(p->offset + x_off, x_len);
-        dout(20) << __func__ << " 0x" << std::hex << x_off << "~" << x_len
-                 << std::dec << " of " << *p << dendl;
         offset += x_len;
         length -= x_len;
     }
@@ -2345,15 +2374,9 @@ ceph::bufferlist BlueFS::FileWriter::flush_buffer(CephContext* const cct,
     }
     const auto remaining_len = length - bl.length();
     buffer.splice(0, remaining_len, &bl);
-    if (buffer.length()) {
-        dout(20) << " leaving 0x" << std::hex << buffer.length() << std::dec
-                 << " unflushed" << dendl;
-    }
+
     if (const unsigned tail = bl.length() & ~super.block_mask(); tail) {
         const auto padding_len = super.block_size - tail;
-        dout(20) << __func__ << " caching tail of 0x" << std::hex << tail
-                 << " and padding block with 0x" << padding_len
-                 << " buffer.length() " << buffer.length() << std::dec << dendl;
         // We need to go through the `buffer_appender` to get a chance to
         // preserve in-memory contiguity and not mess with the alignment.
         // Otherwise a costly rebuild could happen in e.g. `KernelDevice`.
@@ -2374,12 +2397,6 @@ ceph::bufferlist BlueFS::FileWriter::flush_buffer(CephContext* const cct,
 }
 
 int BlueFS::_flush_range(FileWriter* h, uint64_t offset, uint64_t length) {
-    dout(10) << __func__ << " " << h << " pos 0x" << std::hex << h->pos << " 0x"
-             << offset << "~" << length << std::dec << " to " << h->file->fnode
-             << dendl;
-    ceph_assert(!h->file->deleted);
-    ceph_assert(h->file->num_readers.load() == 0);
-
     bool buffered;
     if (h->file->fnode.ino == 1)
         buffered = false;
@@ -2390,10 +2407,7 @@ int BlueFS::_flush_range(FileWriter* h, uint64_t offset, uint64_t length) {
     if (offset < h->pos) {
         length -= h->pos - offset;
         offset = h->pos;
-        dout(10) << " still need 0x" << std::hex << offset << "~" << length
-                 << std::dec << dendl;
     }
-    ceph_assert(offset <= h->file->fnode.size);
 
     uint64_t allocated = h->file->fnode.get_allocated();
     vselector->sub_usage(h->file->vselector_hint, h->file->fnode);
