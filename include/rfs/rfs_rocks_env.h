@@ -1,7 +1,5 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
-// vim: ts=8 sw=2 smarttab
-#ifndef CEPH_OS_BLUESTORE_BLUEROCKSENV_H
-#define CEPH_OS_BLUESTORE_BLUEROCKSENV_H
+#ifndef _RFS_ROCKSENV_H
+#define _RFS_ROCKSENV_H
 
 #include <memory>
 #include <string>
@@ -17,13 +15,6 @@ class BlueFS;
 // 这里将操作系统的接口进行了一层封装。
 class BlueRocksEnv : public rocksdb::EnvWrapper {
     using base_t = EnvWrapper;
-
-    void split(const std::string& fn, std::string* dir, std::string* file) {
-        size_t slash = fn.rfind('/');
-        *file = fn.substr(slash + 1);
-        while (slash && fn[slash - 1] == '/') --slash;
-        *dir = fn.substr(0, slash);
-    }
 
    public:
     // Create a brand new sequentially-readable file with the specified name.
