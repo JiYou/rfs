@@ -1,12 +1,15 @@
 #ifndef _RFS_H_
 #define _RFS_H_
 
+#include <stdint.h>
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 
 struct my_fs {
-  int mkfs(uuid_d osd_uuid, const bluefs_layout_t &layout);
+    
+  int mkfs(uint64_t fs_id, uint64_t user_id, );
   int mount();
   int maybe_verify_layout(const bluefs_layout_t &layout) const;
   void umount();
