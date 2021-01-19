@@ -1,0 +1,9 @@
+tags
+*.swp
+*.o
+.vscode
+.corext/obj/
+source_downloads/
+test.log/
+test.mnt/
+rfs
